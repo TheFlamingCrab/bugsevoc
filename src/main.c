@@ -70,8 +70,8 @@ void onDeviceLost(WGPUDeviceLostReason reason, char const* message, void* reques
 }
 
 void onDeviceError(WGPUErrorType type, char const* message, void* requestData) {
-    /*printf("Uncaptured device error\n");
-    printf("%d\n", type);*/
+    printf("Uncaptured device error\n");
+    printf("%d\n", type);
 }
 
 void onQueueWorkDone(WGPUQueueWorkDoneStatus status, void* requestData) {
