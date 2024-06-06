@@ -1,2 +1,1 @@
-# bugsevoc
-bugsevo but in c
+bugsevo but in C
