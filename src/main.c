@@ -238,7 +238,7 @@ int initialise() {
     // TODO: SET DEVICE LIMITS
     WGPUDeviceDescriptor deviceDescriptor = {};
     deviceDescriptor.nextInChain = NULL;
-    deviceDescriptor.label = "My Device"; // anything works here, that's your call
+    deviceDescriptor.label = "My Device";
     deviceDescriptor.requiredFeatureCount = 0; // we do not require any specific feature
     deviceDescriptor.requiredLimits = NULL; // we do not require any specific limit
     deviceDescriptor.defaultQueue.nextInChain = NULL;
@@ -343,6 +343,7 @@ void run() {
     wgpuQueueWriteBuffer(state.queue, vertexBuffer, 0, vertexData, bufferDescriptor.size);
 
     bufferDescriptor.size = sizeof(indexData);
+    // round it up to the nearest multiple of 4 bytes
     bufferDescriptor.size = (bufferDescriptor.size + 3) & ~3;
     bufferDescriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index;
     WGPUBuffer indexBuffer = wgpuDeviceCreateBuffer(state.device, &bufferDescriptor);
@@ -406,7 +407,7 @@ void run() {
         renderPassDesc.depthStencilAttachment = NULL;
         renderPassDesc.timestampWrites = NULL;
 
-        // Create the render pass and end it immediately (we only clear the screen but do not draw anything)
+        // Create the render pass
         WGPURenderPassEncoder renderPass = wgpuCommandEncoderBeginRenderPass(encoder, &renderPassDesc);
         wgpuRenderPassEncoderSetPipeline(renderPass, state.pipeline);
 
@@ -429,7 +430,7 @@ void run() {
         wgpuQueueSubmit(state.queue, 1, &command);
         wgpuCommandBufferRelease(command);
 
-        // At the enc of the frame
+        // At the end of the frame
         wgpuTextureViewRelease(targetView);
         wgpuSurfacePresent(state.surface);
 
