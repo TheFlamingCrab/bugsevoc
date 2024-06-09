@@ -7,8 +7,6 @@
 #include <sdl2webgpu.h>
 #include <input.h>
 
-float currentTime = 0.0f;
-
 float vertexData[30] = {
     -0.5, -0.5, 1.0, 0.0, 0.0,
     +0.5, -0.5, 0.0, 1.0, 0.0,
@@ -35,6 +33,10 @@ struct State {
     WGPUBuffer uniformBuffer;
     WGPUBindGroup bindGroup;
 } state;
+
+struct {
+    float cameraPosition[2];
+} uniformData;
 
 typedef struct {
     WGPUAdapter adapter;
@@ -76,8 +78,8 @@ void onDeviceLost(WGPUDeviceLostReason reason, char const* message, void* reques
 }
 
 void onDeviceError(WGPUErrorType type, char const* message, void* requestData) {
-    //printf("Uncaptured device error\n");
-    //printf("%d\n", type);
+    printf("Uncaptured device error\n");
+    printf("%d\n", type);
 }
 
 void onQueueWorkDone(WGPUQueueWorkDoneStatus status, void* requestData) {
@@ -228,10 +230,12 @@ void initialiseBuffers() {
     wgpuQueueWriteBuffer(state.queue, indexBuffer, 0, indexData, bufferDescriptor.size);
 
     // UNIFORM BUFFER
-    bufferDescriptor.size = sizeof(float);
+    uniformData.cameraPosition[0] = 0.0f;
+    uniformData.cameraPosition[1] = 0.0f;
+    bufferDescriptor.size = sizeof(uniformData);
     bufferDescriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Uniform;
     WGPUBuffer uniformBuffer = wgpuDeviceCreateBuffer(state.device, &bufferDescriptor);
-    wgpuQueueWriteBuffer(state.queue, uniformBuffer, 0, &currentTime, sizeof(float));
+    wgpuQueueWriteBuffer(state.queue, uniformBuffer, 0, &uniformData, sizeof(uniformData));
 
     state.vertexBuffer = vertexBuffer;
     state.indexBuffer = indexBuffer;
@@ -299,6 +303,7 @@ bool initialiseWGPU() {
     wgpuDeviceSetUncapturedErrorCallback(device, onDeviceError, NULL);
 
     WGPUSupportedLimits deviceLimits = {};
+
     deviceLimits.nextInChain = NULL;
     success = wgpuDeviceGetLimits(device, &deviceLimits);
     if (success) {
@@ -357,7 +362,7 @@ bool initialiseWGPU() {
     bindingLayout.binding = 0;
     bindingLayout.visibility = WGPUShaderStage_Vertex;
     bindingLayout.buffer.type = WGPUBufferBindingType_Uniform;
-    bindingLayout.buffer.minBindingSize = sizeof(float);
+    bindingLayout.buffer.minBindingSize = sizeof(uniformData);
     // pipeline layout
     WGPUBindGroupLayoutDescriptor bindGroupLayoutDescriptor = {};
     bindGroupLayoutDescriptor.entryCount = 1;
@@ -378,7 +383,7 @@ bool initialiseWGPU() {
 	// multiple uniform blocks.
 	binding.offset = 0;
 	// And we specify again the size of the buffer.
-	binding.size = sizeof(float);
+	binding.size = sizeof(uniformData);
 	// A bind group contains one or multiple bindings
 	WGPUBindGroupDescriptor bindGroupDescriptor = {};
 	bindGroupDescriptor.layout = bindGroupLayout;
@@ -390,6 +395,8 @@ bool initialiseWGPU() {
     state.bindGroup = bindGroup;
     state.pipeline = createRenderPipeline(layout);
 
+    wgpuPipelineLayoutRelease(layout);
+    wgpuBindGroupLayoutRelease(bindGroupLayout);
     wgpuAdapterRelease(adapter);
     wgpuInstanceRelease(instance);
     
@@ -466,13 +473,19 @@ void run() {
         }
 
         if (getKey(SDL_SCANCODE_LEFT)) {
-            currentTime -= 0.005f;
+            uniformData.cameraPosition[0] -= 0.005f;
         }
-        else if (getKey(SDL_SCANCODE_RIGHT)) {
-            currentTime += 0.005f;
+        if (getKey(SDL_SCANCODE_RIGHT)) {
+            uniformData.cameraPosition[0] += 0.005f;
+        }
+        if (getKey(SDL_SCANCODE_UP)) {
+            uniformData.cameraPosition[1] += 0.005f;
+        }
+        if (getKey(SDL_SCANCODE_DOWN)) {
+            uniformData.cameraPosition[1] -= 0.005f;
         }
 
-        wgpuQueueWriteBuffer(state.queue, state.uniformBuffer, 0, &currentTime, sizeof(float));
+        wgpuQueueWriteBuffer(state.queue, state.uniformBuffer, 0, &uniformData, sizeof(uniformData));
 
         // Get the next target texture view
         WGPUTextureView targetView = getNextSurfaceTextureView();
@@ -521,6 +534,7 @@ void run() {
         commandBufferDescriptor.nextInChain = NULL;
         commandBufferDescriptor.label = "Command buffer";
         WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder, &commandBufferDescriptor);
+
         wgpuCommandEncoderRelease(encoder);
 
         wgpuQueueSubmit(state.queue, 1, &command);
@@ -547,7 +561,6 @@ void run() {
 }
 
 int main() {
-
     if(initialiseWGPU()) {
         run();
     }
