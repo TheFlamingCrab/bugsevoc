@@ -7,6 +7,8 @@
 #include <sdl2webgpu.h>
 #include <input.h>
 
+float currentTime = 0.0f;
+
 float vertexData[30] = {
     -0.5, -0.5, 1.0, 0.0, 0.0,
     +0.5, -0.5, 0.0, 1.0, 0.0,
@@ -28,6 +30,10 @@ struct State {
     WGPUSurface surface;
     WGPUTextureFormat surfaceFormat;
     WGPURenderPipeline pipeline;
+    WGPUBuffer vertexBuffer;
+    WGPUBuffer indexBuffer;
+    WGPUBuffer uniformBuffer;
+    WGPUBindGroup bindGroup;
 } state;
 
 typedef struct {
@@ -70,8 +76,8 @@ void onDeviceLost(WGPUDeviceLostReason reason, char const* message, void* reques
 }
 
 void onDeviceError(WGPUErrorType type, char const* message, void* requestData) {
-    printf("Uncaptured device error\n");
-    printf("%d\n", type);
+    //printf("Uncaptured device error\n");
+    //printf("%d\n", type);
 }
 
 void onQueueWorkDone(WGPUQueueWorkDoneStatus status, void* requestData) {
@@ -79,7 +85,7 @@ void onQueueWorkDone(WGPUQueueWorkDoneStatus status, void* requestData) {
     printf("%d\n", status);
 }
 
-void initialisePipeline() {
+WGPURenderPipeline createRenderPipeline(WGPUPipelineLayout layout) {
     // LOAD SHADERS
     FileManager fileManager = createFileManager("shaders/main.wgsl");
     char shaderBuffer[fileManager.size + 1];
@@ -126,6 +132,7 @@ void initialisePipeline() {
 
     // primitive pipeline state
     // each sequence of 3 points is a triangle
+    // TODO: USE TRIANGLE STRIPS TO SAVE RENDERING
     pipelineDescriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
     // which order vertices should be connected
     pipelineDescriptor.primitive.stripIndexFormat = WGPUIndexFormat_Undefined;
@@ -172,31 +179,69 @@ void initialisePipeline() {
     // default as well (irrelevant for count = 1 anyway)
     pipelineDescriptor.multisample.alphaToCoverageEnabled = false;
 
-    // pipeline layout
-    pipelineDescriptor.layout = NULL;
+    pipelineDescriptor.layout = layout;
     WGPURenderPipeline pipeline = wgpuDeviceCreateRenderPipeline(state.device, &pipelineDescriptor);
         
     wgpuShaderModuleRelease(shaderModule);
-    
-    state.pipeline = pipeline;
+
+    return pipeline;
 }
 
-int initialise() {
+bool initialiseSDL2() {
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         fprintf(stderr, "Error in initialising SDL %s\n", SDL_GetError());
-        return 1;
+        return false;
     }
     
     // set window parameters
     int windowFlags = 0;
-    SDL_Window *window = SDL_CreateWindow("Learn WebGPU", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 640, 480, windowFlags);
+    SDL_Window* window = SDL_CreateWindow("Learn WebGPU", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 640, 480, windowFlags);
     if (!window) {
         fprintf(stderr, "Failed to create SDL2 window\n");
         SDL_Quit();
-        return 1;
+        return false;
     }
 
+    state.window = window;
+
+    return true;
+}
+
+void initialiseBuffers() {
+    WGPUBufferDescriptor bufferDescriptor = {};
+    bufferDescriptor.nextInChain = NULL;
+    bufferDescriptor.mappedAtCreation = false;
+
+    // VERTEX BUFFER
+    bufferDescriptor.size = sizeof(vertexData);
+    bufferDescriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex;
+    WGPUBuffer vertexBuffer = wgpuDeviceCreateBuffer(state.device, &bufferDescriptor);
+    wgpuQueueWriteBuffer(state.queue, vertexBuffer, 0, vertexData, bufferDescriptor.size);
+
+    // INDEX BUFFER
+    bufferDescriptor.size = sizeof(indexData);
+    // round it up to the nearest multiple of 4 bytes
+    bufferDescriptor.size = (bufferDescriptor.size + 3) & ~3;
+    bufferDescriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index;
+    WGPUBuffer indexBuffer = wgpuDeviceCreateBuffer(state.device, &bufferDescriptor);
+    wgpuQueueWriteBuffer(state.queue, indexBuffer, 0, indexData, bufferDescriptor.size);
+
+    // UNIFORM BUFFER
+    bufferDescriptor.size = sizeof(float);
+    bufferDescriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Uniform;
+    WGPUBuffer uniformBuffer = wgpuDeviceCreateBuffer(state.device, &bufferDescriptor);
+    wgpuQueueWriteBuffer(state.queue, uniformBuffer, 0, &currentTime, sizeof(float));
+
+    state.vertexBuffer = vertexBuffer;
+    state.indexBuffer = indexBuffer;
+    state.uniformBuffer = uniformBuffer;
+}
+
+bool initialiseWGPU() {
+    if(!initialiseSDL2()) {
+        printf("Could not initialise SDL");
+    }
     // reuse variable for success of various requests
     bool success;
 
@@ -213,7 +258,7 @@ int initialise() {
     wgpuInstanceRequestAdapter(instance, NULL, onAdapterRequestEnded, (void*)&adapterRequestData);
     adapter = adapterRequestData.adapter;
 
-	WGPUSurface surface = SDL_GetWGPUSurface(instance, window);
+	WGPUSurface surface = SDL_GetWGPUSurface(instance, state.window);
 	printf("surface = %p\n", surface);
 
     if (!surface) {
@@ -282,18 +327,73 @@ int initialise() {
     surfaceConfiguration.alphaMode = WGPUCompositeAlphaMode_Auto;
     wgpuSurfaceConfigure(surface, &surfaceConfiguration);
 
-    state.window = window;
     state.device = device;
     state.queue = queue;
     state.surface = surface;
     state.surfaceFormat = surfaceFormat;
 
-    initialisePipeline();
+    initialiseBuffers();
+
+    // binding layout
+    WGPUBindGroupLayoutEntry bindingLayout = {};
+    // SET DEFAULT (sets others to undefined so that only the resource we need is used)
+    bindingLayout.buffer.nextInChain = NULL;
+    bindingLayout.buffer.type = WGPUBufferBindingType_Undefined;
+    bindingLayout.buffer.hasDynamicOffset = false;
+
+    bindingLayout.sampler.nextInChain = NULL;
+    bindingLayout.sampler.type = WGPUSamplerBindingType_Undefined;
+
+    bindingLayout.storageTexture.nextInChain = NULL;
+    bindingLayout.storageTexture.access = WGPUStorageTextureAccess_Undefined;
+    bindingLayout.storageTexture.format = WGPUTextureFormat_Undefined;
+    bindingLayout.storageTexture.viewDimension = WGPUTextureViewDimension_Undefined;
+
+    bindingLayout.texture.nextInChain = NULL;
+    bindingLayout.texture.multisampled = false;
+    bindingLayout.texture.sampleType = WGPUTextureSampleType_Undefined;
+    bindingLayout.texture.viewDimension = WGPUTextureViewDimension_Undefined;
+    // END SET DEFAULT
+    bindingLayout.binding = 0;
+    bindingLayout.visibility = WGPUShaderStage_Vertex;
+    bindingLayout.buffer.type = WGPUBufferBindingType_Uniform;
+    bindingLayout.buffer.minBindingSize = sizeof(float);
+    // pipeline layout
+    WGPUBindGroupLayoutDescriptor bindGroupLayoutDescriptor = {};
+    bindGroupLayoutDescriptor.entryCount = 1;
+    bindGroupLayoutDescriptor.entries = &bindingLayout;
+    WGPUBindGroupLayout bindGroupLayout = wgpuDeviceCreateBindGroupLayout(state.device, &bindGroupLayoutDescriptor);
+    WGPUPipelineLayoutDescriptor pipelineLayoutDescriptor = {};
+    pipelineLayoutDescriptor.nextInChain = NULL;
+    pipelineLayoutDescriptor.bindGroupLayoutCount = 1;
+    pipelineLayoutDescriptor.bindGroupLayouts = &bindGroupLayout;
+    WGPUPipelineLayout layout = wgpuDeviceCreatePipelineLayout(state.device, &pipelineLayoutDescriptor);
+    // Create a binding
+	WGPUBindGroupEntry binding = {};
+	// The index of the binding (the entries in bindGroupDescriptor can be in any order)
+	binding.binding = 0;
+	// The buffer it is actually bound to
+	binding.buffer = state.uniformBuffer;
+	// We can specify an offset within the buffer, so that a single buffer can hold
+	// multiple uniform blocks.
+	binding.offset = 0;
+	// And we specify again the size of the buffer.
+	binding.size = sizeof(float);
+	// A bind group contains one or multiple bindings
+	WGPUBindGroupDescriptor bindGroupDescriptor = {};
+	bindGroupDescriptor.layout = bindGroupLayout;
+	// There must be as many bindings as declared in the layout!
+	bindGroupDescriptor.entryCount = 1;
+	bindGroupDescriptor.entries = &binding;
+	WGPUBindGroup bindGroup = wgpuDeviceCreateBindGroup(state.device, &bindGroupDescriptor);
+
+    state.bindGroup = bindGroup;
+    state.pipeline = createRenderPipeline(layout);
 
     wgpuAdapterRelease(adapter);
     wgpuInstanceRelease(instance);
     
-    return 0;
+    return true;
 }
 
 void terminate() {
@@ -303,6 +403,7 @@ void terminate() {
     wgpuSurfaceRelease(state.surface);
     wgpuQueueRelease(state.queue);
     wgpuDeviceRelease(state.device);
+    wgpuBindGroupRelease(state.bindGroup);
 
     // free SDL2 resources
     SDL_DestroyWindow(state.window);
@@ -333,21 +434,6 @@ WGPUTextureView getNextSurfaceTextureView() {
 }
 
 void run() {
-    WGPUBufferDescriptor bufferDescriptor = {};
-    bufferDescriptor.nextInChain = NULL;
-    bufferDescriptor.size = sizeof(vertexData);
-    bufferDescriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex;
-    bufferDescriptor.mappedAtCreation = false;
-    WGPUBuffer vertexBuffer = wgpuDeviceCreateBuffer(state.device, &bufferDescriptor);
-
-    wgpuQueueWriteBuffer(state.queue, vertexBuffer, 0, vertexData, bufferDescriptor.size);
-
-    bufferDescriptor.size = sizeof(indexData);
-    // round it up to the nearest multiple of 4 bytes
-    bufferDescriptor.size = (bufferDescriptor.size + 3) & ~3;
-    bufferDescriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index;
-    WGPUBuffer indexBuffer = wgpuDeviceCreateBuffer(state.device, &bufferDescriptor);
-    wgpuQueueWriteBuffer(state.queue, indexBuffer, 0, indexData, bufferDescriptor.size);
 
     bool shouldClose = false;
     while (!shouldClose) {
@@ -378,6 +464,15 @@ void run() {
                     break;
             }
         }
+
+        if (getKey(SDL_SCANCODE_LEFT)) {
+            currentTime -= 0.005f;
+        }
+        else if (getKey(SDL_SCANCODE_RIGHT)) {
+            currentTime += 0.005f;
+        }
+
+        wgpuQueueWriteBuffer(state.queue, state.uniformBuffer, 0, &currentTime, sizeof(float));
 
         // Get the next target texture view
         WGPUTextureView targetView = getNextSurfaceTextureView();
@@ -411,10 +506,11 @@ void run() {
         WGPURenderPassEncoder renderPass = wgpuCommandEncoderBeginRenderPass(encoder, &renderPassDesc);
         wgpuRenderPassEncoderSetPipeline(renderPass, state.pipeline);
 
-        wgpuRenderPassEncoderSetVertexBuffer(renderPass, 0, vertexBuffer, 0, sizeof(vertexData));
-        wgpuRenderPassEncoderSetIndexBuffer(renderPass, indexBuffer, WGPUIndexFormat_Uint16, 0, sizeof(indexData));
+        wgpuRenderPassEncoderSetVertexBuffer(renderPass, 0, state.vertexBuffer, 0, sizeof(vertexData));
+        wgpuRenderPassEncoderSetIndexBuffer(renderPass, state.indexBuffer, WGPUIndexFormat_Uint16, 0, sizeof(indexData));
 
         // Draw to the screen
+        wgpuRenderPassEncoderSetBindGroup(renderPass, 0, state.bindGroup, 0, NULL);
         wgpuRenderPassEncoderDrawIndexed(renderPass, 6, 1, 0, 0, 0);
 
         wgpuRenderPassEncoderEnd(renderPass);
@@ -435,21 +531,24 @@ void run() {
         wgpuSurfacePresent(state.surface);
 
         wgpuDevicePoll(state.device, false, NULL);
-
+        
         // INPUT UPDATES
         flushInput();
     }
 
-    wgpuBufferDestroy(vertexBuffer);
-    wgpuBufferRelease(vertexBuffer);
+    wgpuBufferDestroy(state.vertexBuffer);
+    wgpuBufferRelease(state.vertexBuffer);
 
-    wgpuBufferDestroy(indexBuffer);
-    wgpuBufferRelease(indexBuffer);
+    wgpuBufferDestroy(state.indexBuffer);
+    wgpuBufferRelease(state.indexBuffer);
+
+    wgpuBufferDestroy(state.uniformBuffer);
+    wgpuBufferRelease(state.uniformBuffer);
 }
 
 int main() {
 
-    if(initialise() == 0) {
+    if(initialiseWGPU()) {
         run();
     }
 
@@ -457,3 +556,4 @@ int main() {
 
     return 0;
 }
+
