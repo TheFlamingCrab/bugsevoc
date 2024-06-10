@@ -10,18 +10,20 @@
 #include <camera.h>
 
 float vertexData[30] = {
-    -1.0, -1.0, 1.0, 0.0, 0.0,
-    +1.0, -1.0, 0.0, 1.0, 0.0,
-    +1.0, +1.0, 0.0, 0.0, 1.0,
-    -1.0, +1.0, 1.0, 0.0, 0.0,
+    -0.5f, -0.5f, 1.0f, 0.0f, 0.0f,
+    +0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
+    +0.5f, +0.5f, 0.0f, 0.0f, 1.0f,
+    -0.5f, -0.5f, 1.0f, 0.0f, 0.0f,
+    +0.5f, +0.5f, 0.0f, 0.0f, 1.0f,
+    -0.5f, +0.5f, 1.0f, 0.0f, 0.0f,
 };
 
-uint16_t indexData[6] = {
-    0,1,2,
-    0,2,3,
-};
+typedef struct {
+    float position[2];
+    float size;
+} InstanceRaw;
 
-int vertexCount = 6;
+InstanceRaw instances[2];
 
 struct State {
     WGPUDevice device;
@@ -31,7 +33,7 @@ struct State {
     WGPUTextureFormat surfaceFormat;
     WGPURenderPipeline pipeline;
     WGPUBuffer vertexBuffer;
-    WGPUBuffer indexBuffer;
+    WGPUBuffer instanceBuffer;
     WGPUBuffer uniformBuffer;
     WGPUBindGroup bindGroup;
 } state;
@@ -109,6 +111,8 @@ WGPURenderPipeline createRenderPipeline(WGPUPipelineLayout layout) {
     WGPURenderPipelineDescriptor pipelineDescriptor = {};
 
     // Vertex pipeline state
+    WGPUVertexBufferLayout vertexBufferLayouts[2];
+
     WGPUVertexAttribute vertexAttributes[2] = {};
     vertexAttributes[0].shaderLocation = 0;
     vertexAttributes[0].format = WGPUVertexFormat_Float32x2;
@@ -117,13 +121,26 @@ WGPURenderPipeline createRenderPipeline(WGPUPipelineLayout layout) {
     vertexAttributes[1].format = WGPUVertexFormat_Float32x3;
     vertexAttributes[1].offset = 2 * sizeof(float);
 
-    WGPUVertexBufferLayout vertexBufferLayout = {};
-    vertexBufferLayout.attributeCount = 2;
-    vertexBufferLayout.attributes = vertexAttributes;
-    vertexBufferLayout.arrayStride = 5 * sizeof(float);
-    vertexBufferLayout.stepMode = WGPUVertexStepMode_Vertex;
-    pipelineDescriptor.vertex.bufferCount = 1;
-    pipelineDescriptor.vertex.buffers = &vertexBufferLayout;
+    vertexBufferLayouts[0].attributeCount = 2;
+    vertexBufferLayouts[0].attributes = vertexAttributes;
+    vertexBufferLayouts[0].arrayStride = 5 * sizeof(float);
+    vertexBufferLayouts[0].stepMode = WGPUVertexStepMode_Vertex;
+
+    WGPUVertexAttribute instanceVertexAttributes[2] = {};
+    instanceVertexAttributes[0].shaderLocation = 2;
+    instanceVertexAttributes[0].format = WGPUVertexFormat_Float32x2;
+    instanceVertexAttributes[0].offset = 0;
+    instanceVertexAttributes[1].shaderLocation = 3;
+    instanceVertexAttributes[1].format = WGPUVertexFormat_Float32;
+    instanceVertexAttributes[1].offset = 2 * sizeof(float);
+
+    vertexBufferLayouts[1].attributeCount = 2;
+    vertexBufferLayouts[1].attributes = instanceVertexAttributes;
+    vertexBufferLayouts[1].arrayStride = 3 * sizeof(float);
+    vertexBufferLayouts[1].stepMode = WGPUVertexStepMode_Instance;
+
+    pipelineDescriptor.vertex.bufferCount = 2;
+    pipelineDescriptor.vertex.buffers = (WGPUVertexBufferLayout*)&vertexBufferLayouts;
 
     pipelineDescriptor.vertex.module = shaderModule;
     pipelineDescriptor.vertex.entryPoint = "vs_main";
@@ -219,13 +236,25 @@ void initialiseBuffers() {
     WGPUBuffer vertexBuffer = wgpuDeviceCreateBuffer(state.device, &bufferDescriptor);
     wgpuQueueWriteBuffer(state.queue, vertexBuffer, 0, vertexData, bufferDescriptor.size);
 
-    // INDEX BUFFER
+    // INSTANCE BUFFER
+    instances[0].position[0] = 0;
+    instances[0].position[1] = 0;
+    instances[0].size = 1.0f;
+    instances[1].position[0] = 0.5f;
+    instances[1].position[1] = 0.5f;
+    instances[1].size = 1.0f;
+    bufferDescriptor.size = sizeof(instances);
+    bufferDescriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex;
+    WGPUBuffer instanceBuffer = wgpuDeviceCreateBuffer(state.device, &bufferDescriptor);
+    wgpuQueueWriteBuffer(state.queue, instanceBuffer, 0, instances, bufferDescriptor.size);
+
+    /*// INDEX BUFFER
     bufferDescriptor.size = sizeof(indexData);
     // round it up to the nearest multiple of 4 bytes
     bufferDescriptor.size = (bufferDescriptor.size + 3) & ~3;
     bufferDescriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index;
     WGPUBuffer indexBuffer = wgpuDeviceCreateBuffer(state.device, &bufferDescriptor);
-    wgpuQueueWriteBuffer(state.queue, indexBuffer, 0, indexData, bufferDescriptor.size);
+    wgpuQueueWriteBuffer(state.queue, indexBuffer, 0, indexData, bufferDescriptor.size);*/
 
     // UNIFORM BUFFER
     cameraUniform.position[0] = 0.0f;
@@ -237,7 +266,8 @@ void initialiseBuffers() {
     wgpuQueueWriteBuffer(state.queue, uniformBuffer, 0, &cameraUniform, sizeof(cameraUniform));
 
     state.vertexBuffer = vertexBuffer;
-    state.indexBuffer = indexBuffer;
+    state.instanceBuffer = instanceBuffer;
+    //state.indexBuffer = indexBuffer;
     state.uniformBuffer = uniformBuffer;
 }
 
@@ -262,7 +292,7 @@ bool initialiseWGPU() {
     adapter = adapterRequestData.adapter;
 
 	WGPUSurface surface = SDL_GetWGPUSurface(instance, state.window);
-	printf("surface = %p\n", surface);
+	//printf("surface = %p\n", surface);
 
     if (!surface) {
         printf("Could not get WGPU surface\n");
@@ -274,11 +304,11 @@ bool initialiseWGPU() {
 
     success = wgpuAdapterGetLimits(adapter, &adapterLimits);
     if (success) {
-        printf("Adapter limits:\n");
+        /*printf("Adapter limits:\n");
         printf("maxTextureDimension1D: %d\n", adapterLimits.limits.maxTextureDimension1D);
         printf("maxTextureDimension2D: %d\n", adapterLimits.limits.maxTextureDimension2D);
         printf("maxTextureDimension3D: %d\n", adapterLimits.limits.maxTextureDimension3D);
-        printf("maxTextureArrayLayers: %d\n", adapterLimits.limits.maxTextureArrayLayers);
+        printf("maxTextureArrayLayers: %d\n", adapterLimits.limits.maxTextureArrayLayers);*/
     }
 
     // DEVICE
@@ -306,11 +336,11 @@ bool initialiseWGPU() {
     deviceLimits.nextInChain = NULL;
     success = wgpuDeviceGetLimits(device, &deviceLimits);
     if (success) {
-        printf("Device limits:\n");
+        /*printf("Device limits:\n");
         printf("maxTextureDimension1D: %d\n", deviceLimits.limits.maxTextureDimension1D);
         printf("maxTextureDimension2D: %d\n", deviceLimits.limits.maxTextureDimension2D);
         printf("maxTextureDimension3D: %d\n", deviceLimits.limits.maxTextureDimension3D);
-        printf("maxTextureArrayLayers: %d\n", deviceLimits.limits.maxTextureArrayLayers);
+        printf("maxTextureArrayLayers: %d\n", deviceLimits.limits.maxTextureArrayLayers);*/
     }
 
     // COMMAND QUEUE
@@ -525,11 +555,13 @@ void run() {
         wgpuRenderPassEncoderSetPipeline(renderPass, state.pipeline);
 
         wgpuRenderPassEncoderSetVertexBuffer(renderPass, 0, state.vertexBuffer, 0, sizeof(vertexData));
-        wgpuRenderPassEncoderSetIndexBuffer(renderPass, state.indexBuffer, WGPUIndexFormat_Uint16, 0, sizeof(indexData));
+        wgpuRenderPassEncoderSetVertexBuffer(renderPass, 1, state.instanceBuffer, 0, sizeof(instances));
+        //wgpuRenderPassEncoderSetIndexBuffer(renderPass, state.indexBuffer, WGPUIndexFormat_Uint16, 0, sizeof(indexData));
 
         // Draw to the screen
         wgpuRenderPassEncoderSetBindGroup(renderPass, 0, state.bindGroup, 0, NULL);
-        wgpuRenderPassEncoderDrawIndexed(renderPass, 6, 1, 0, 0, 0);
+        wgpuRenderPassEncoderDraw(renderPass, 6, 2, 0, 0);
+        //wgpuRenderPassEncoderDrawIndexed(renderPass, 6, 1, 0, 0, 0);
 
         wgpuRenderPassEncoderEnd(renderPass);
 
@@ -558,8 +590,8 @@ void run() {
     wgpuBufferDestroy(state.vertexBuffer);
     wgpuBufferRelease(state.vertexBuffer);
 
-    wgpuBufferDestroy(state.indexBuffer);
-    wgpuBufferRelease(state.indexBuffer);
+    //wgpuBufferDestroy(state.indexBuffer);
+    //wgpuBufferRelease(state.indexBuffer);
 
     wgpuBufferDestroy(state.uniformBuffer);
     wgpuBufferRelease(state.uniformBuffer);
