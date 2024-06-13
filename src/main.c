@@ -368,34 +368,112 @@ bool initialiseWGPU() {
 
     initialiseBuffers();
 
+    // CREATE TEXTURE
+    WGPUTextureDescriptor textureDescriptor = {};
+    textureDescriptor.dimension = WGPUTextureDimension_2D;
+    textureDescriptor.nextInChain = NULL;
+    textureDescriptor.size = (WGPUExtent3D){128, 128, 1};
+    textureDescriptor.mipLevelCount = 1;
+    textureDescriptor.sampleCount = 1;
+    textureDescriptor.format = WGPUTextureFormat_RGBA8Unorm;
+    textureDescriptor.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+    textureDescriptor.viewFormatCount = 0;
+    textureDescriptor.viewFormats = NULL;
+    WGPUTexture texture = wgpuDeviceCreateTexture(state.device, &textureDescriptor);
+
+    uint8_t pixels[4 * textureDescriptor.size.width * textureDescriptor.size.height];
+    for (int i = 0 ; i < textureDescriptor.size.width; ++i) {
+        for (int j = 0; j < textureDescriptor.size.height; ++j) {
+            uint8_t* p = &pixels[4 * (j * textureDescriptor.size.width + i)];
+            p[0] = (uint8_t)i;
+            p[1] = (uint8_t)j;
+            p[2] = 128;
+            p[3] = 255;
+        }
+    }
+    
+    WGPUImageCopyTexture destination;
+    destination.texture = texture;
+    destination.mipLevel = 0;
+    destination.origin = (WGPUOrigin3D){0, 0, 0};
+    destination.aspect = WGPUTextureAspect_All;
+
+    WGPUTextureDataLayout source;
+    source.offset = 0;
+    // minimum of 256 bytes
+    source.bytesPerRow = 4 * textureDescriptor.size.width;
+    source.rowsPerImage = textureDescriptor.size.height;
+
+    wgpuQueueWriteTexture(state.queue, &destination, pixels, 4 * textureDescriptor.size.width * textureDescriptor.size.height, &source, &textureDescriptor.size);
+
+    WGPUTextureViewDescriptor textureViewDescriptor = {};
+    textureViewDescriptor.aspect = WGPUTextureAspect_All;
+    textureViewDescriptor.baseArrayLayer = 0;
+    textureViewDescriptor.arrayLayerCount = 1;
+    textureViewDescriptor.baseMipLevel = 0;
+    textureViewDescriptor.mipLevelCount = 1;
+    textureViewDescriptor.dimension = WGPUTextureViewDimension_2D;
+    textureViewDescriptor.format = textureDescriptor.format;
+    WGPUTextureView textureView = wgpuTextureCreateView(texture, &textureViewDescriptor);
+    // TODO: RELEASE TEXTURE VIEW
+    // END CREATE TEXTURE
+
     // binding layout
-    WGPUBindGroupLayoutEntry bindingLayout = {};
+    WGPUBindGroupLayoutEntry bindingLayouts[2];
     // SET DEFAULT (sets others to undefined so that only the resource we need is used)
-    bindingLayout.buffer.nextInChain = NULL;
-    bindingLayout.buffer.type = WGPUBufferBindingType_Undefined;
-    bindingLayout.buffer.hasDynamicOffset = false;
+    bindingLayouts[0].buffer.nextInChain = NULL;
+    bindingLayouts[0].buffer.type = WGPUBufferBindingType_Undefined;
+    bindingLayouts[0].buffer.hasDynamicOffset = false;
 
-    bindingLayout.sampler.nextInChain = NULL;
-    bindingLayout.sampler.type = WGPUSamplerBindingType_Undefined;
+    bindingLayouts[0].sampler.nextInChain = NULL;
+    bindingLayouts[0].sampler.type = WGPUSamplerBindingType_Undefined;
 
-    bindingLayout.storageTexture.nextInChain = NULL;
-    bindingLayout.storageTexture.access = WGPUStorageTextureAccess_Undefined;
-    bindingLayout.storageTexture.format = WGPUTextureFormat_Undefined;
-    bindingLayout.storageTexture.viewDimension = WGPUTextureViewDimension_Undefined;
+    bindingLayouts[0].storageTexture.nextInChain = NULL;
+    bindingLayouts[0].storageTexture.access = WGPUStorageTextureAccess_Undefined;
+    bindingLayouts[0].storageTexture.format = WGPUTextureFormat_Undefined;
+    bindingLayouts[0].storageTexture.viewDimension = WGPUTextureViewDimension_Undefined;
 
-    bindingLayout.texture.nextInChain = NULL;
-    bindingLayout.texture.multisampled = false;
-    bindingLayout.texture.sampleType = WGPUTextureSampleType_Undefined;
-    bindingLayout.texture.viewDimension = WGPUTextureViewDimension_Undefined;
+    bindingLayouts[0].texture.nextInChain = NULL;
+    bindingLayouts[0].texture.multisampled = false;
+    bindingLayouts[0].texture.sampleType = WGPUTextureSampleType_Undefined;
+    bindingLayouts[0].texture.viewDimension = WGPUTextureViewDimension_Undefined;
+
+    // ANOTHER ROUND
+    bindingLayouts[1].buffer.nextInChain = NULL;
+    bindingLayouts[1].buffer.type = WGPUBufferBindingType_Undefined;
+    bindingLayouts[1].buffer.hasDynamicOffset = false;
+
+    bindingLayouts[1].sampler.nextInChain = NULL;
+    bindingLayouts[1].sampler.type = WGPUSamplerBindingType_Undefined;
+
+    bindingLayouts[1].storageTexture.nextInChain = NULL;
+    bindingLayouts[1].storageTexture.access = WGPUStorageTextureAccess_Undefined;
+    bindingLayouts[1].storageTexture.format = WGPUTextureFormat_Undefined;
+    bindingLayouts[1].storageTexture.viewDimension = WGPUTextureViewDimension_Undefined;
+
+    bindingLayouts[0].texture.nextInChain = NULL;
+    bindingLayouts[0].texture.multisampled = false;
+    bindingLayouts[0].texture.sampleType = WGPUTextureSampleType_Undefined;
+    bindingLayouts[0].texture.viewDimension = WGPUTextureViewDimension_Undefined;
     // END SET DEFAULT
-    bindingLayout.binding = 0;
-    bindingLayout.visibility = WGPUShaderStage_Vertex;
-    bindingLayout.buffer.type = WGPUBufferBindingType_Uniform;
-    bindingLayout.buffer.minBindingSize = sizeof(cameraUniform);
+
+    // UNIFORM BINDING LAYOUT
+    bindingLayouts[0].binding = 0;
+    bindingLayouts[0].visibility = WGPUShaderStage_Vertex;
+    bindingLayouts[0].buffer.type = WGPUBufferBindingType_Uniform;
+    bindingLayouts[0].buffer.minBindingSize = sizeof(cameraUniform);
+    // TEXTURE BINDING LAYOUT
+    bindingLayouts[1].nextInChain = NULL;
+    bindingLayouts[1].binding = 1;
+    bindingLayouts[1].visibility = WGPUShaderStage_Fragment;
+    bindingLayouts[1].texture.sampleType = WGPUTextureSampleType_Float;
+    bindingLayouts[1].texture.viewDimension = WGPUTextureViewDimension_2D;
+    bindingLayouts[1].texture.multisampled = false;
+    
     // pipeline layout
     WGPUBindGroupLayoutDescriptor bindGroupLayoutDescriptor = {};
-    bindGroupLayoutDescriptor.entryCount = 1;
-    bindGroupLayoutDescriptor.entries = &bindingLayout;
+    bindGroupLayoutDescriptor.entryCount = 2;
+    bindGroupLayoutDescriptor.entries = (WGPUBindGroupLayoutEntry*)&bindingLayouts;
     WGPUBindGroupLayout bindGroupLayout = wgpuDeviceCreateBindGroupLayout(state.device, &bindGroupLayoutDescriptor);
     WGPUPipelineLayoutDescriptor pipelineLayoutDescriptor = {};
     pipelineLayoutDescriptor.nextInChain = NULL;
@@ -403,22 +481,26 @@ bool initialiseWGPU() {
     pipelineLayoutDescriptor.bindGroupLayouts = &bindGroupLayout;
     WGPUPipelineLayout layout = wgpuDeviceCreatePipelineLayout(state.device, &pipelineLayoutDescriptor);
     // Create a binding
-	WGPUBindGroupEntry binding = {};
+	WGPUBindGroupEntry bindings[2];
 	// The index of the binding (the entries in bindGroupDescriptor can be in any order)
-	binding.binding = 0;
+	bindings[0].binding = 0;
 	// The buffer it is actually bound to
-	binding.buffer = state.uniformBuffer;
+	bindings[0].buffer = state.uniformBuffer;
 	// We can specify an offset within the buffer, so that a single buffer can hold
 	// multiple uniform blocks.
-	binding.offset = 0;
+	bindings[0].offset = 0;
 	// And we specify again the size of the buffer.
-	binding.size = sizeof(cameraUniform);
+	bindings[0].size = sizeof(cameraUniform);
+
+    bindings[1].binding = 1;
+    bindings[1].textureView = textureView;
+
 	// A bind group contains one or multiple bindings
 	WGPUBindGroupDescriptor bindGroupDescriptor = {};
 	bindGroupDescriptor.layout = bindGroupLayout;
 	// There must be as many bindings as declared in the layout!
-	bindGroupDescriptor.entryCount = 1;
-	bindGroupDescriptor.entries = &binding;
+	bindGroupDescriptor.entryCount = 2;
+	bindGroupDescriptor.entries = (WGPUBindGroupEntry*)&bindings;
 	WGPUBindGroup bindGroup = wgpuDeviceCreateBindGroup(state.device, &bindGroupDescriptor);
 
     state.bindGroup = bindGroup;
@@ -454,7 +536,7 @@ WGPUTextureView getNextSurfaceTextureView() {
         return NULL;
     }
 
-    WGPUTextureViewDescriptor viewDescriptor;
+    WGPUTextureViewDescriptor viewDescriptor = {};
     viewDescriptor.nextInChain = NULL;
     viewDescriptor.label = "Surface texture view";
     viewDescriptor.format = wgpuTextureGetFormat(surfaceTexture.texture);
@@ -470,6 +552,7 @@ WGPUTextureView getNextSurfaceTextureView() {
 }
 
 void run() {
+
 
     bool shouldClose = false;
     while (!shouldClose) {
@@ -595,6 +678,9 @@ void run() {
 
     wgpuBufferDestroy(state.uniformBuffer);
     wgpuBufferRelease(state.uniformBuffer);
+
+    //wgpuTextureDestroy(texture);
+    //wgpuTextureRelease(texture);
 }
 
 int main() {
