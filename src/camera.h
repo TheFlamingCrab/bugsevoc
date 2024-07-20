@@ -13,3 +13,6 @@ struct {
 
 void worldToScreenCoordinates(float worldCoordinates[2], float* screenCoordinateBuffer);
 void screenToWorldCoordinates(float screenCoordinates[2], float* worldCoordinateBuffer);
+
+void worldToHexCoordinates(float worldCoordinates[2], int* hexCoordinateBuffer);
+void hexToWorldCoordinates(int hexCoordinates[2], float* worldCoordinateBuffer);
