@@ -8,13 +8,28 @@
 
 #include <renderer.h>
 
-float vertexData[30] = {
-    -0.5f, -0.5f, 1.0f, 0.0f, 0.0f,
-    +0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
-    +0.5f, +0.5f, 0.0f, 0.0f, 1.0f,
-    -0.5f, -0.5f, 1.0f, 0.0f, 0.0f,
-    +0.5f, +0.5f, 0.0f, 0.0f, 1.0f,
-    -0.5f, +0.5f, 1.0f, 0.0f, 0.0f,
+// honestly dont even bother trying to understand this, just trust that it works
+
+WGPUSampler sampler;
+WGPUBindGroupLayout bindGroupLayout;
+WGPUTextureView textureView;
+
+/*float vertexData[30] = {
+    -1.0f, -1.0f, 1.0f, 0.0f, 0.0f,
+    +1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
+    +1.0f, +1.0f, 0.0f, 0.0f, 1.0f,
+    -1.0f, -1.0f, 1.0f, 0.0f, 0.0f,
+    +1.0f, +1.0f, 0.0f, 0.0f, 1.0f,
+    -1.0f, +1.0f, 1.0f, 0.0f, 0.0f,
+};*/
+
+float vertexData[12] = {
+    -1.0f, -1.0f,
+    +1.0f, -1.0f,
+    +1.0f, +1.0f,
+    -1.0f, -1.0f,
+    +1.0f, +1.0f,
+    -1.0f, +1.0f,
 };
 
 typedef struct {
@@ -59,6 +74,7 @@ void onDeviceLost(WGPUDeviceLostReason reason, char const* message, void* reques
 void onDeviceError(WGPUErrorType type, char const* message, void* requestData) {
     printf("Uncaptured device error\n");
     printf("%d\n", type);
+    exit(0);
 }
 
 void onQueueWorkDone(WGPUQueueWorkDoneStatus status, void* requestData) {
@@ -89,7 +105,7 @@ WGPURenderPipeline createRenderPipeline(WGPUPipelineLayout layout) {
 
     WGPURenderPipelineDescriptor pipelineDescriptor = {};
 
-    // Vertex pipeline state
+    /*// Vertex pipeline state
     WGPUVertexBufferLayout vertexBufferLayouts[2];
 
     WGPUVertexAttribute vertexAttributes[2] = {};
@@ -119,6 +135,42 @@ WGPURenderPipeline createRenderPipeline(WGPUPipelineLayout layout) {
     vertexBufferLayouts[1].stepMode = WGPUVertexStepMode_Instance;
 
     pipelineDescriptor.vertex.bufferCount = 2;
+    pipelineDescriptor.vertex.buffers = (WGPUVertexBufferLayout*)&vertexBufferLayouts;
+
+    pipelineDescriptor.vertex.module = shaderModule;
+    pipelineDescriptor.vertex.entryPoint = "vs_main";
+    pipelineDescriptor.vertex.constantCount = 0;
+    pipelineDescriptor.vertex.constants = NULL;*/
+
+    WGPUVertexBufferLayout vertexBufferLayouts[1];
+
+    WGPUVertexAttribute vertexAttributes[2] = {};
+    vertexAttributes[0].shaderLocation = 0;
+    vertexAttributes[0].format = WGPUVertexFormat_Float32x2;
+    vertexAttributes[0].offset = 0;
+    //vertexAttributes[1].shaderLocation = 1;
+    //vertexAttributes[1].format = WGPUVertexFormat_Float32x3;
+    //vertexAttributes[1].offset = 2 * sizeof(float);
+
+    vertexBufferLayouts[0].attributeCount = 1;
+    vertexBufferLayouts[0].attributes = vertexAttributes;
+    vertexBufferLayouts[0].arrayStride = 2 * sizeof(float);
+    vertexBufferLayouts[0].stepMode = WGPUVertexStepMode_Vertex;
+
+    /*WGPUVertexAttribute instanceVertexAttributes[2] = {};
+    instanceVertexAttributes[0].shaderLocation = 2;
+    instanceVertexAttributes[0].format = WGPUVertexFormat_Float32x2;
+    instanceVertexAttributes[0].offset = 0;
+    instanceVertexAttributes[1].shaderLocation = 3;
+    instanceVertexAttributes[1].format = WGPUVertexFormat_Float32;
+    instanceVertexAttributes[1].offset = 2 * sizeof(float);
+
+    vertexBufferLayouts[1].attributeCount = 2;
+    vertexBufferLayouts[1].attributes = instanceVertexAttributes;
+    vertexBufferLayouts[1].arrayStride = 3 * sizeof(float);
+    vertexBufferLayouts[1].stepMode = WGPUVertexStepMode_Instance;*/
+
+    pipelineDescriptor.vertex.bufferCount = 1;
     pipelineDescriptor.vertex.buffers = (WGPUVertexBufferLayout*)&vertexBufferLayouts;
 
     pipelineDescriptor.vertex.module = shaderModule;
@@ -183,6 +235,36 @@ WGPURenderPipeline createRenderPipeline(WGPUPipelineLayout layout) {
     return pipeline;
 }
 
+void updateTexture() {
+    // Create a binding
+	WGPUBindGroupEntry bindings[3] = {};
+	// The index of the binding (the entries in bindGroupDescriptor can be in any order)
+	bindings[0].binding = 0;
+	// The buffer it is actually bound to
+	bindings[0].buffer = state.uniformBuffer;
+
+	// We can specify an offset within the buffer, so that a single buffer can hold
+	// multiple uniform blocks.
+	bindings[0].offset = 0;
+	// And we specify again the size of the buffer.
+	bindings[0].size = sizeof(cameraUniform);
+
+    bindings[1].binding = 1;
+    bindings[1].textureView = textureView;
+
+    bindings[2].binding = 2;
+    bindings[2].sampler = sampler;
+
+    // A bind group contains one or multiple bindings
+	WGPUBindGroupDescriptor bindGroupDescriptor = {};
+	bindGroupDescriptor.layout = bindGroupLayout;
+	// There must be as many bindings as declared in the layout!
+	bindGroupDescriptor.entryCount = 3;
+	bindGroupDescriptor.entries = (WGPUBindGroupEntry*)&bindings;
+	WGPUBindGroup bindGroup = wgpuDeviceCreateBindGroup(state.device, &bindGroupDescriptor);
+    state.bindGroup = bindGroup;
+}
+
 void initialiseBuffers() {
     WGPUBufferDescriptor bufferDescriptor = {};
     bufferDescriptor.nextInChain = NULL;
@@ -201,10 +283,14 @@ void initialiseBuffers() {
     instances[1].position[0] = 0.5f;
     instances[1].position[1] = 0.5f;
     instances[1].size = 0.75f;*/
+
+    /*instances[0].position[0] = 0;
+    instances[0].position[1] = 0;
+    instances[0].size = 1.0f;
     bufferDescriptor.size = sizeof(instances);
     bufferDescriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex;
     WGPUBuffer instanceBuffer = wgpuDeviceCreateBuffer(state.device, &bufferDescriptor);
-    wgpuQueueWriteBuffer(state.queue, instanceBuffer, 0, instances, bufferDescriptor.size);
+    wgpuQueueWriteBuffer(state.queue, instanceBuffer, 0, instances, bufferDescriptor.size);*/
 
     /*// INDEX BUFFER
     bufferDescriptor.size = sizeof(indexData);
@@ -224,7 +310,7 @@ void initialiseBuffers() {
     wgpuQueueWriteBuffer(state.queue, uniformBuffer, 0, &cameraUniform, sizeof(cameraUniform));
 
     state.vertexBuffer = vertexBuffer;
-    state.instanceBuffer = instanceBuffer;
+    //state.instanceBuffer = instanceBuffer;
     //state.indexBuffer = indexBuffer;
     state.uniformBuffer = uniformBuffer;
 }
@@ -364,7 +450,6 @@ bool initialiseWGPU() {
     textureDescriptor.viewFormats = NULL;
     WGPUTexture texture = wgpuDeviceCreateTexture(state.device, &textureDescriptor);
 
-    uint8_t pixels[4 * textureDescriptor.size.width * textureDescriptor.size.height];
     for (int i = 0 ; i < textureDescriptor.size.width; ++i) {
         for (int j = 0; j < textureDescriptor.size.height; ++j) {
             uint8_t* p = &pixels[4 * (j * textureDescriptor.size.width + i)];
@@ -397,7 +482,7 @@ bool initialiseWGPU() {
     textureViewDescriptor.mipLevelCount = mipLevelCount;
     textureViewDescriptor.dimension = WGPUTextureViewDimension_2D;
     textureViewDescriptor.format = textureDescriptor.format;
-    WGPUTextureView textureView = wgpuTextureCreateView(texture, &textureViewDescriptor);
+    textureView = wgpuTextureCreateView(texture, &textureViewDescriptor);
     // TODO: RELEASE TEXTURE VIEW
     // END CREATE TEXTURE
 
@@ -413,11 +498,11 @@ bool initialiseWGPU() {
     samplerDescriptor.compare = WGPUCompareFunction_Undefined;
     samplerDescriptor.maxAnisotropy = 1;
 
-    WGPUSampler sampler = wgpuDeviceCreateSampler(device, &samplerDescriptor);
+    sampler = wgpuDeviceCreateSampler(device, &samplerDescriptor);
 
     // binding layout
     WGPUBindGroupLayoutEntry bindingLayouts[3] = {};
-    // SET DEFAULT (sets others to undefined so that only the resource we need is used)
+    // SET DEFAULT (sets others to undefined so that only the resource we need are used)
     bindingLayouts[0].buffer.nextInChain = NULL;
     bindingLayouts[0].buffer.type = WGPUBufferBindingType_Undefined;
     bindingLayouts[0].buffer.hasDynamicOffset = false;
@@ -488,20 +573,18 @@ bool initialiseWGPU() {
     bindingLayouts[2].visibility = WGPUShaderStage_Fragment;
     bindingLayouts[2].sampler.type = WGPUSamplerBindingType_Filtering;
         
-    
     // pipeline layout
     WGPUBindGroupLayoutDescriptor bindGroupLayoutDescriptor = {};
     bindGroupLayoutDescriptor.entryCount = 3;
     bindGroupLayoutDescriptor.entries = (WGPUBindGroupLayoutEntry*)&bindingLayouts;
-    WGPUBindGroupLayout bindGroupLayout = wgpuDeviceCreateBindGroupLayout(state.device, &bindGroupLayoutDescriptor);
+    bindGroupLayout = wgpuDeviceCreateBindGroupLayout(state.device, &bindGroupLayoutDescriptor);
     WGPUPipelineLayoutDescriptor pipelineLayoutDescriptor = {};
     pipelineLayoutDescriptor.nextInChain = NULL;
     pipelineLayoutDescriptor.bindGroupLayoutCount = 1;
     pipelineLayoutDescriptor.bindGroupLayouts = &bindGroupLayout;
     WGPUPipelineLayout layout = wgpuDeviceCreatePipelineLayout(state.device, &pipelineLayoutDescriptor);
 
-
-    // Create a binding
+    /*// Create a binding
 	WGPUBindGroupEntry bindings[3] = {};
 	// The index of the binding (the entries in bindGroupDescriptor can be in any order)
 	bindings[0].binding = 0;
@@ -528,21 +611,25 @@ bool initialiseWGPU() {
 	bindGroupDescriptor.entries = (WGPUBindGroupEntry*)&bindings;
 
 	WGPUBindGroup bindGroup = wgpuDeviceCreateBindGroup(state.device, &bindGroupDescriptor);
+        state.bindGroup = bindGroup;*/
+    updateTexture();
 
-    state.bindGroup = bindGroup;
+    printf("hello\n");
     state.pipeline = createRenderPipeline(layout);
+    printf("hello\n");
 
     wgpuPipelineLayoutRelease(layout);
-    wgpuBindGroupLayoutRelease(bindGroupLayout);
     wgpuAdapterRelease(adapter);
     wgpuInstanceRelease(instance);
 
-    
     return true;
 }
 
 void wgpuTerminate() {
     // free wgpu resources
+    
+    wgpuBindGroupLayoutRelease(bindGroupLayout);
+
     wgpuRenderPipelineRelease(state.pipeline);
     wgpuSurfaceUnconfigure(state.surface);
     wgpuSurfaceRelease(state.surface);
@@ -579,6 +666,49 @@ WGPUTextureView getNextSurfaceTextureView() {
 }
 
 void draw() {
+    uint32_t mipLevelCount = 1;
+
+    WGPUTextureDescriptor textureDescriptor = {};
+    textureDescriptor.dimension = WGPUTextureDimension_2D;
+    textureDescriptor.nextInChain = NULL;
+    textureDescriptor.size = (WGPUExtent3D){128, 128, 1};
+    textureDescriptor.mipLevelCount = mipLevelCount;
+    textureDescriptor.sampleCount = 1;
+    textureDescriptor.format = WGPUTextureFormat_RGBA8Unorm;
+    textureDescriptor.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+    textureDescriptor.viewFormatCount = 0;
+    textureDescriptor.viewFormats = NULL;
+    WGPUTexture texture = wgpuDeviceCreateTexture(state.device, &textureDescriptor);
+    
+    WGPUImageCopyTexture destination;
+    destination.texture = texture;
+    destination.mipLevel = 0;
+    destination.origin = (WGPUOrigin3D){0, 0, 0};
+    destination.aspect = WGPUTextureAspect_All;
+
+    WGPUTextureDataLayout source;
+    source.offset = 0;
+    // minimum of 256 bytes
+    source.bytesPerRow = 4 * textureDescriptor.size.width;
+    source.rowsPerImage = textureDescriptor.size.height;
+
+    wgpuQueueWriteTexture(state.queue, &destination, pixels, 4 * textureDescriptor.size.width * textureDescriptor.size.height, &source, &textureDescriptor.size);
+
+    WGPUTextureViewDescriptor textureViewDescriptor = {};
+    textureViewDescriptor.aspect = WGPUTextureAspect_All;
+    textureViewDescriptor.baseArrayLayer = 0;
+    textureViewDescriptor.arrayLayerCount = 1;
+    textureViewDescriptor.baseMipLevel = 0;
+    textureViewDescriptor.mipLevelCount = mipLevelCount;
+    textureViewDescriptor.dimension = WGPUTextureViewDimension_2D;
+    textureViewDescriptor.format = textureDescriptor.format;
+    textureView = wgpuTextureCreateView(texture, &textureViewDescriptor);
+    // TODO: RELEASE TEXTURE VIEW
+    // END CREATE TEXTURE
+
+    updateTexture();
+
+    // TODO: ABSTRACT TEXTURE PASSING
     wgpuQueueWriteBuffer(state.queue, state.uniformBuffer, 0, &cameraUniform, sizeof(cameraUniform));
 
     // Get the next target texture view
@@ -614,12 +744,12 @@ void draw() {
     wgpuRenderPassEncoderSetPipeline(renderPass, state.pipeline);
 
     wgpuRenderPassEncoderSetVertexBuffer(renderPass, 0, state.vertexBuffer, 0, sizeof(vertexData));
-    wgpuRenderPassEncoderSetVertexBuffer(renderPass, 1, state.instanceBuffer, 0, sizeof(instances));
+    //wgpuRenderPassEncoderSetVertexBuffer(renderPass, 1, state.instanceBuffer, 0, sizeof(instances));
     //wgpuRenderPassEncoderSetIndexBuffer(renderPass, state.indexBuffer, WGPUIndexFormat_Uint16, 0, sizeof(indexData));
 
     // Draw to the screen
     wgpuRenderPassEncoderSetBindGroup(renderPass, 0, state.bindGroup, 0, NULL);
-    wgpuRenderPassEncoderDraw(renderPass, 6, 10, 0, 0);
+    wgpuRenderPassEncoderDraw(renderPass, 6, 1, 0, 0);
     //wgpuRenderPassEncoderDrawIndexed(renderPass, 6, 1, 0, 0, 0);
 
     wgpuRenderPassEncoderEnd(renderPass);

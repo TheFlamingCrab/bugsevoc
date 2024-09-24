@@ -10,6 +10,8 @@ bool keyboardStateBuffer[SDL_NUM_SCANCODES];
 bool mouseStateBacklogBuffer[MAX_MOUSE_BUTTONS];
 bool mouseStateBuffer[MAX_MOUSE_BUTTONS];
 
+int mousePositionBuffer[2];
+
 bool getKeyDown(uint8_t scancode);
 bool getKey(uint8_t scancode);
 bool getKeyUp(uint8_t scancode);

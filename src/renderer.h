@@ -9,6 +9,8 @@ typedef struct {
 
 InstanceRaw instances[10];
 
+uint8_t pixels[4 * 128 * 128];
+
 struct State {
     WGPUDevice device;
     WGPUQueue queue;
